@@ -1,0 +1,82 @@
+version: '3.5'
+
+services:
+  mysql:
+    image: mysql:5.7.23
+    container_name: mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: pass
+      MYSQL_PASSWORD: pass
+    ports:
+      - 3306:3306
+    restart: always
+    volumes:
+      - "./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql"
+      - "./mysql/conf.d:/etc/mysql/conf.d/"
+    networks:
+      - maxwellkafka
+
+  zoo:
+    image: zookeeper:3.4.9
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOO_MY_ID: 1
+      ZOO_PORT: 2181
+      ZOO_SERVERS: server.1=zoo:2888:3888
+    networks:
+      - maxwellkafka
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka
+    restart: always
+    ports:
+      - "9092:9092"
+      - "19092:19092"
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: LISTENER_DOCKER_INTERNAL://localhost:19092,LISTENER_DOCKER_EXTERNAL://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: LISTENER_DOCKER_INTERNAL:PLAINTEXT,LISTENER_DOCKER_EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: LISTENER_DOCKER_INTERNAL
+      KAFKA_ZOOKEEPER_CONNECT: "zoo:2181"
+      KAFKA_BROKER_ID: 1
+      KAFKA_LOG4J_LOGGERS: "kafka.controller=INFO,kafka.producer.async.DefaultEventHandler=INFO,state.change.logger=INFO"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    depends_on:
+      - zoo
+    networks:
+      - maxwellkafka
+
+  maxwell:
+    image: zendesk/maxwell
+    container_name: maxwell
+    command: bin/maxwell --config /etc/maxwell/config.properties
+    volumes:
+      - ./maxwell:/etc/maxwell/
+    links:
+      - kafka
+    restart: always
+    depends_on:
+      - kafka
+    networks:
+      - maxwellkafka
+
+  kafdrop:
+    container_name: kafdrop
+    image: obsidiandynamics/kafdrop
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKERCONNECT: "kafka:9092"
+      JVM_OPTS: "-Xms32M -Xmx64M"
+      SERVER_SERVLET_CONTEXTPATH: "/"
+    networks:
+      - maxwellkafka
+
+networks:
+  maxwellkafka:
+    driver: bridge
+    external: false
+    name: maxwellkafka
